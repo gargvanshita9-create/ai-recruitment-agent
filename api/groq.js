@@ -1,9 +1,10 @@
-// Serverless proxy for the xAI (Grok) Chat Completions API.
+// Serverless proxy for the Groq Chat Completions API (OpenAI-compatible).
 // Runs on Vercel / Netlify / Cloudflare. The browser calls THIS function
 // (same origin, so no CORS), and the function adds the secret key and
-// forwards the request to xAI. The key never reaches the browser.
+// forwards the request to Groq. The key never reaches the browser.
 //
-// Required environment variable: XAI_API_KEY  (your xai-... key)
+// Required environment variable: GROQ_API_KEY  (your gsk_... key from
+// console.groq.com)
 
 export default async function handler(req, res) {
   // Allow same-origin POSTs only; reject everything else cleanly.
@@ -12,11 +13,11 @@ export default async function handler(req, res) {
     return;
   }
 
-  const apiKey = process.env.XAI_API_KEY;
+  const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
     res.status(500).json({
       error:
-        "Server is missing XAI_API_KEY. Add it in your hosting dashboard's environment variables and redeploy.",
+        "Server is missing GROQ_API_KEY. Add it in your hosting dashboard's environment variables (or .env locally) and redeploy.",
     });
     return;
   }
@@ -25,10 +26,9 @@ export default async function handler(req, res) {
     const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body || {};
     const {
       messages,
-      model = "grok-4.3",
-      temperature = 0.3,
+      model = "llama-3.3-70b-versatile",
+      temperature = 0.4,
       max_tokens = 4000,
-      reasoning_effort = "low",
     } = body;
 
     if (!Array.isArray(messages) || messages.length === 0) {
@@ -36,7 +36,7 @@ export default async function handler(req, res) {
       return;
     }
 
-    const upstream = await fetch("https://api.x.ai/v1/chat/completions", {
+    const upstream = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -47,7 +47,6 @@ export default async function handler(req, res) {
         messages,
         temperature,
         max_tokens,
-        reasoning_effort,
       }),
     });
 
@@ -56,7 +55,7 @@ export default async function handler(req, res) {
     if (!upstream.ok) {
       const detail =
         (data && (data.error?.message || data.error || data.message)) ||
-        `xAI returned ${upstream.status}`;
+        `Groq returned ${upstream.status}`;
       res.status(upstream.status).json({ error: detail });
       return;
     }
