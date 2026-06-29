@@ -37,10 +37,9 @@
   .nav button.on{background:var(--accent-soft);color:var(--accent)}
   .nav .dot{width:7px;height:7px;border-radius:50%;background:currentColor;opacity:.55}
   .side h2{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin:0 0 8px}
-  .jd-item,.hist-item{border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:7px;cursor:pointer;background:var(--panel)}
-  .jd-item:hover,.hist-item:hover{border-color:var(--accent);background:var(--accent-soft)}
-  .jd-item b{display:block;font-size:13px}
-  .jd-item span,.hist-item span{color:var(--muted);font-size:11px}
+  .hist-item{border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:7px;cursor:pointer;background:var(--panel)}
+  .hist-item:hover{border-color:var(--accent);background:var(--accent-soft)}
+  .hist-item span{color:var(--muted);font-size:11px}
   .hist-item b{display:block;font-size:12.5px;font-weight:600}
   .hist-empty{color:var(--muted);font-size:12px;font-style:italic}
   .side-foot{margin-top:auto;font-size:11px;color:var(--muted);line-height:1.45}
@@ -65,6 +64,9 @@
   .seg button{border:0;background:#fff;font:inherit;font-weight:500;color:var(--muted);padding:7px 13px;cursor:pointer;border-right:1px solid var(--line)}
   .seg button:last-child{border-right:0}
   .seg button.on{background:var(--accent);color:#fff}
+  .upload-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+  .upload-row input[type=file]{font:inherit;font-size:12.5px;color:var(--muted)}
+  .err-text{color:var(--bad)}
   .checks{display:flex;flex-wrap:wrap;gap:8px}
   .chk{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:9px;padding:7px 11px;cursor:pointer;font-weight:500;user-select:none}
   .chk input{accent-color:var(--accent)}
@@ -130,11 +132,6 @@
     </nav>
 
     <div>
-      <h2>Saved JDs</h2>
-      <div id="jdList"></div>
-    </div>
-
-    <div>
       <h2>Recent</h2>
       <div id="histList"><div class="hist-empty">Nothing yet.</div></div>
     </div>
@@ -150,22 +147,9 @@
 
 <script>
 /* ---------------------------------------------------------------------------
-   Saved JDs — the user's current open requirements (editable in localStorage).
+   History persists in the browser; no job descriptions are bundled with the
+   app — they're pasted or uploaded each time.
 --------------------------------------------------------------------------- */
-const DEFAULT_JDS = {
-  "py-sdet": { title:"Python SDET", client:"Zensar",
-    text:"Python SDET, 4-7 yrs. Strong Python automation, PyTest/Selenium, REST API testing, CI/CD (Jenkins/GitLab), SQL. Framework design from scratch. BFSI domain a plus." },
-  "lwc": { title:"Salesforce LWC Developer", client:"Accenture",
-    text:"Salesforce LWC Developer, 5-8 yrs. Lightning Web Components, Apex, SOQL, integrations (REST/SOAP), Sales/Service Cloud. PD1 certification required, PD2 preferred." },
-  "cxone": { title:"NICE CXone Engineer", client:"Confidential",
-    text:"NICE CXone Engineer, 4-6 yrs. CXone Studio scripting, IVR/ACD design, Salesforce-CTI integration, API/webhooks, contact-centre operations. inContact experience welcome." },
-  "ccpp": { title:"C/C++ Developer", client:"Product Co.",
-    text:"C/C++ Developer, 6-10 yrs. Modern C++ (14/17), multithreading, data structures, Linux systems programming, low-latency design, gdb/valgrind. Networking/embedded a plus." },
-  "treasury": { title:"Treasury Tech Analyst", client:"Banking",
-    text:"Treasury Technology Analyst, 5-9 yrs. Kyriba/FIS Quantum or similar TMS, cash & liquidity, SWIFT/ISO 20022, SQL, payments. Strong banking/treasury domain knowledge." },
-};
-const customJDs = JSON.parse(localStorage.getItem("jds") || "{}");
-const JDS = { ...DEFAULT_JDS, ...customJDs };
 let history = JSON.parse(localStorage.getItem("history") || "[]");
 
 /* ---------------------------------------------------------------------------
@@ -219,7 +203,7 @@ function renderHistory(){
 /* ---------------------------------------------------------------------------
    Tabs
 --------------------------------------------------------------------------- */
-let activeJDSource = "saved", pickedJD = Object.keys(JDS)[0];
+let activeJDSource = "paste";
 const tabs = { screen:renderScreen, rank:renderRank, qs:renderQs, email:renderEmail };
 let current = "screen";
 
@@ -229,12 +213,28 @@ $("#nav").addEventListener("click",e=>{
   [...$("#nav").children].forEach(x=>x.classList.toggle("on",x===b));
   tabs[current]();
 });
-function renderJDSidebar(){
-  $("#jdList").innerHTML = Object.entries(JDS).map(([k,v])=>
-    `<div class="jd-item" data-k="${k}"><b>${esc(v.title)}</b><span>${esc(v.client||"")}</span></div>`).join("");
-  $("#jdList").querySelectorAll(".jd-item").forEach(el=>{
-    el.onclick=()=>{ if(current==="screen"){ activeJDSource="saved"; pickedJD=el.dataset.k; renderScreen(); } };
+
+/* ---------------------------------------------------------------------------
+   File upload — sends PDF / DOCX / text to /api/extract and returns the text.
+--------------------------------------------------------------------------- */
+function readAsBase64(file){
+  return new Promise((resolve,reject)=>{
+    const r=new FileReader();
+    r.onload=()=>resolve(String(r.result));
+    r.onerror=()=>reject(new Error("Could not read the file."));
+    r.readAsDataURL(file);
   });
+}
+async function extractFile(file){
+  const data=await readAsBase64(file);
+  const res=await fetch("/api/extract",{
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify({ filename:file.name, contentType:file.type, data }),
+  });
+  const out=await res.json();
+  if(!res.ok) throw new Error(out.error || "Could not extract text from that file.");
+  return out.text || "";
 }
 
 /* ---------------------------------------------------------------------------
@@ -248,14 +248,17 @@ function renderScreen(){
     <div class="card">
       <label>Job description</label>
       <div class="seg" id="jdSeg">
-        <button data-s="saved">Saved JD</button>
         <button data-s="paste">Paste</button>
         <button data-s="upload">Upload</button>
       </div>
       <div id="jdArea"></div>
     </div>
     <div class="card">
-      <label>Candidate CV <span class="hint">— paste the résumé text</span></label>
+      <label>Candidate CV <span class="hint">— paste the text or upload a PDF / DOCX</span></label>
+      <div class="upload-row">
+        <input type="file" id="cvFile" accept=".pdf,.docx,.txt,.md,.json"/>
+        <span class="muted" id="cvFileMsg"></span>
+      </div>
       <textarea id="cv" rows="8" placeholder="Paste the candidate's CV / résumé here…"></textarea>
     </div>
     <button class="btn" id="run">Screen candidate</button>
@@ -265,28 +268,40 @@ function renderScreen(){
   seg.querySelectorAll("button").forEach(b=>b.classList.toggle("on",b.dataset.s===activeJDSource));
   seg.onclick=e=>{const b=e.target.closest("button");if(!b)return;activeJDSource=b.dataset.s;renderScreen();};
   paintJDArea();
+  wireFileInput($("#cvFile"), $("#cv"), $("#cvFileMsg"));
 
   $("#run").onclick=runScreen;
 }
+/* Wire a file <input> to fill a target field via /api/extract, with status. */
+function wireFileInput(input, target, msgEl){
+  if(!input) return;
+  input.onchange=async ev=>{
+    const f=ev.target.files[0]; if(!f) return;
+    if(msgEl){ msgEl.textContent="Extracting text…"; msgEl.classList.remove("err-text"); }
+    try{
+      const text=await extractFile(f);
+      target.value=text;
+      if(msgEl) msgEl.textContent=`Loaded ${f.name} (${text.length.toLocaleString()} chars).`;
+    }catch(err){
+      if(msgEl){ msgEl.textContent=err.message; msgEl.classList.add("err-text"); }
+    }
+  };
+}
 function paintJDArea(){
   const a=$("#jdArea"); if(!a)return;
-  if(activeJDSource==="saved"){
-    a.innerHTML=`<select id="jdSel">${Object.entries(JDS).map(([k,v])=>
-      `<option value="${k}" ${k===pickedJD?"selected":""}>${esc(v.title)} — ${esc(v.client||"")}</option>`).join("")}</select>
-      <div class="block muted" id="jdPrev" style="font-size:12.5px"></div>`;
-    const sel=$("#jdSel"); const prev=()=>{$("#jdPrev").textContent=JDS[sel.value].text;};
-    sel.onchange=()=>{pickedJD=sel.value;prev();}; prev();
-  } else if(activeJDSource==="paste"){
+  if(activeJDSource==="paste"){
     a.innerHTML=`<textarea id="jdPaste" rows="6" placeholder="Paste the job description here…"></textarea>`;
   } else {
-    a.innerHTML=`<input type="file" id="jdFile" accept=".txt,.md,.json"/>
-      <div class="block muted" style="font-size:12px">Plain-text files (.txt, .md). For PDF/DOCX, paste the text instead.</div>
+    a.innerHTML=`<div class="upload-row">
+        <input type="file" id="jdFile" accept=".pdf,.docx,.txt,.md,.json"/>
+        <span class="muted" id="jdFileMsg"></span>
+      </div>
+      <div class="block muted" style="font-size:12px">PDF, DOCX, or plain text. Scanned image-only PDFs have no text to extract — paste those instead.</div>
       <textarea id="jdPaste" rows="4" style="margin-top:10px" placeholder="…or paste here"></textarea>`;
-    $("#jdFile").onchange=ev=>{const f=ev.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{$("#jdPaste").value=r.result;};r.readAsText(f);};
+    wireFileInput($("#jdFile"), $("#jdPaste"), $("#jdFileMsg"));
   }
 }
 function getJDText(){
-  if(activeJDSource==="saved") return JDS[$("#jdSel")?.value||pickedJD].text;
   return ($("#jdPaste")?.value||"").trim();
 }
 async function runScreen(){
@@ -512,7 +527,6 @@ function mdToHtml(md){
 }
 
 /* ---- boot ---- */
-renderJDSidebar();
 renderHistory();
 renderScreen();
 </script>

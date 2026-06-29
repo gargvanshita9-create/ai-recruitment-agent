@@ -18,8 +18,14 @@ can be read by anyone who opens the page.
 
 ## Files
 
-- `index.html` — the whole app (no build step, no dependencies)
+- `index.html` — the whole front-end (no build step)
 - `api/grok.js` — serverless proxy that holds your Grok key
+- `api/extract.js` — serverless text extractor for PDF / DOCX / text uploads
+- `package.json` — declares the extractor's dependencies (`pdf-parse`, `mammoth`)
+
+> The front-end has no dependencies. The two serverless functions need the
+> npm packages above; Vercel installs them automatically from `package.json`
+> on deploy. Run `npm install` first if you use `vercel dev` locally.
 
 ---
 
@@ -83,9 +89,17 @@ vercel dev                   # opens http://localhost:3000 with the function run
 - Change the model or limits in `api/grok.js`. Each screening is a small number
   of tokens — well within trial credits while you test.
 
+## Uploads (PDF / DOCX)
+
+The **Screen CV** tab accepts file uploads for both the job description and the
+candidate CV. Files are sent to `/api/extract`, which pulls out the plain text
+(`pdf-parse` for PDF, `mammoth` for DOCX) and fills the text box — you can edit
+it before screening. Scanned/image-only PDFs have no text layer to extract, so
+paste those instead. Uploads are capped at 8 MB.
+
 ## Customising
 
-- **Saved JDs:** edit the `DEFAULT_JDS` object near the top of the script in
-  `index.html`. History and any custom JDs persist in the browser via
-  `localStorage` (fine here — this is a real site, not a chat artifact).
-- **Prompts:** each tool's prompt lives in its `run…()` function.
+- **Job descriptions:** none are bundled with the app — paste or upload a JD
+  each time. History persists in the browser via `localStorage`.
+- **Prompts:** each tool's prompt lives in its `run…()` function in `index.html`.
+- **Extraction limits/formats:** see `api/extract.js`.
